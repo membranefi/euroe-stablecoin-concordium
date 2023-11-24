@@ -1,0 +1,25 @@
+[package]
+name = "euroe_stablecoin"
+version = "0.1.0"
+authors = ["Membrane Finance Oy <info@membrane.fi>", "Concordium <developers@concordium.com>"]
+edition = "2021"
+license = "MPL-2.0"
+
+[features]
+default = ["std", "wee_alloc"]
+std = ["concordium-std/std", "concordium-cis2/std"]
+wee_alloc = ["concordium-std/wee_alloc"]
+
+[dependencies]
+concordium-std = {default-features = false,version = "8"}
+concordium-cis2 = {default-features = false, version="5"}
+
+[dev-dependencies]
+concordium-smart-contract-testing = {default-features = false, version = "3.2"}
+rand = "0.7.0"
+[lib]
+crate-type=["cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
