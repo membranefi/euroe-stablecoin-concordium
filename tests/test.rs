@@ -530,6 +530,89 @@ fn test_account_transfer() {
     }),]);
 }
 
+/// Test 2 transfers
+#[test]
+fn test_double_transfer() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Transfer one token from Alice to Bob.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    },concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect("Transfer tokens");
+
+    // Check that Bob has 1 `EUROE_TOKEN` and Alice has 399.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![
+        (ALICE_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 398.into())],
+            operators: Vec::new(),
+        }),
+        (BOB_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 2.into())],
+            operators: Vec::new(),
+        }),
+    ]);
+}
+
+// test transfer amount that exceeds the balance
+#[test]
+fn test_transfer_exceed_balance() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Transfer 401 token from Alice to Bob. 
+    // Alice only has 400
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(401),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::InsufficientFunds);
+}
+
 // Test transfer fails if contract is paused
 #[test]
 fn test_transfer_pause(){
@@ -1012,6 +1095,107 @@ fn test_remove_roles(){
 
         let rv: ContractError = update.parse_return_value().expect("ContractError return value");
         assert_eq!(rv, ContractError::Unauthorized);
+}
+
+// Test to remove all roles and re add them using alice as admin.
+#[test]
+fn test_remove_and_readd_roles(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Initialize already grants roles, now we will remove them.
+
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ADMIN_ADDRESS,
+    };
+
+    chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.removeRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Remove roles"),
+        })
+        .expect("Remove roles");
+
+    // Pause contract params.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // . Lets check if we can pause a contract that has had the pause role removed.
+    let update = chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect_err("Pause contract");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Unauthorized);
+
+    // Lets readd the roles, only alice currently is still also the admin.
+
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ADMIN_ADDRESS,
+    };
+
+    chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.grantRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Grant roles"),
+        })
+        .expect("Grant roles");
+
+    // Pause contract params.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // . Lets check if we can pause a contract that has had the pause role removed.
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        }).expect("Pause contract");
+
+        // Transfer one token from Alice to Bob.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
 }
 
 // This test is to check when a user is blocked, the user is not able to call any of the  functionality which has
