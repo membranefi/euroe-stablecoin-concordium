@@ -9,31 +9,36 @@ use concordium_std::{AccountSignatures, CredentialSignatures, HashSha2256, Signa
 use std::collections::BTreeMap;
 /// The tests accounts.
 
-const MINT_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const MINT_ADDRESS_ROLE: Address = Address::Account(MINT_ACCOUNT);
-
-const BURN_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const BURN_ADDRESS_ROLE: Address = Address::Account(BURN_ACCOUNT);
-
-const PAUSE_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const PAUSE_ADDRESS: Address = Address::Account(PAUSE_ACCOUNT);
-
-const ADMIN_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const ADMIN_ADDRESS: Address = Address::Account(ADMIN_ACCOUNT);
-
-const BLOCK_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const BLOCK_ADDRESS: Address = Address::Account(BLOCK_ACCOUNT);
-
-const RANDOM_BLOCKLIST_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
-const RANDOM_BLOCKLIST_ADDRESS: Address = Address::Account(RANDOM_BLOCKLIST_ACCOUNT);
-
 // Alice is considered the admin of the contract for the following tests.
 // Alice assigns the role as she gets the admin role in the initialize function.
 const ALICE: AccountAddress = AccountAddress([0; 32]);
 const ALICE_ADDR: Address = Address::Account(ALICE);
+
 const BOB: AccountAddress = AccountAddress([1; 32]);
 const BOB_ADDR: Address = Address::Account(BOB);
+
 const CHARLIE: AccountAddress = AccountAddress([2u8; 32]);
+
+const MINT_ACCOUNT: AccountAddress = AccountAddress([2; 32]);
+const MINT_ADDRESS_ROLE: Address = Address::Account(MINT_ACCOUNT);
+
+const BURN_ACCOUNT: AccountAddress = AccountAddress([3; 32]);
+const BURN_ADDRESS_ROLE: Address = Address::Account(BURN_ACCOUNT);
+
+const PAUSE_ACCOUNT: AccountAddress = AccountAddress([4; 32]);
+const PAUSE_ADDRESS: Address = Address::Account(PAUSE_ACCOUNT);
+
+const ADMIN_ACCOUNT: AccountAddress = AccountAddress([5; 32]);
+const ADMIN_ADDRESS: Address = Address::Account(ADMIN_ACCOUNT);
+
+const BLOCK_ACCOUNT: AccountAddress = AccountAddress([6; 32]);
+const BLOCK_ADDRESS: Address = Address::Account(BLOCK_ACCOUNT);
+
+const RANDOM_BLOCKLIST_ACCOUNT: AccountAddress = AccountAddress([7; 32]);
+const RANDOM_BLOCKLIST_ADDRESS: Address = Address::Account(RANDOM_BLOCKLIST_ACCOUNT);
+
+const RANDOM_MINT_ACCOUNT: AccountAddress = AccountAddress([8; 32]);
+const _RANDOM_MINT_ADDRESS: Address = Address::Account(RANDOM_MINT_ACCOUNT);
 
 const PUBLIC_KEY: [u8; 32] = [
     120, 154, 141, 6, 248, 239, 77, 224, 80, 62, 139, 136, 211, 204, 105, 208, 26, 11, 2, 208, 195,
@@ -336,7 +341,7 @@ fn test_burn_pause(){
 
     // The role that is allowed to call the pause function is pauseunpause role
     chain
-        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
             amount:       Amount::zero(),
             receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
             address:      contract_address,
@@ -625,7 +630,7 @@ fn test_transfer_pause(){
 
     // The role that is allowed to call the pause function is pauseunpause role
     chain
-        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
             amount:       Amount::zero(),
             receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
             address:      contract_address,
@@ -1606,8 +1611,9 @@ fn initialize_chain_and_contract() -> (Chain, ContractAddress) {
     chain.create_account(Account::new(ADMIN_ACCOUNT, ACC_INITIAL_BALANCE));
     chain.create_account(Account::new(BLOCK_ACCOUNT, ACC_INITIAL_BALANCE));
     chain.create_account(Account::new(RANDOM_BLOCKLIST_ACCOUNT, ACC_INITIAL_BALANCE));
+    chain.create_account(Account::new(CHARLIE, ACC_INITIAL_BALANCE));
+    chain.create_account(Account::new(RANDOM_MINT_ACCOUNT, ACC_INITIAL_BALANCE));
     
-
     // Load and deploy the module.
     let module = module_load_v1("dist/module.wasm.v1").expect("Module exists");
     let deployment = chain.module_deploy_v1(SIGNER, ALICE, module).expect("Deploy valid module");
