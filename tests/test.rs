@@ -588,6 +588,77 @@ fn test_double_transfer() {
     ]);
 }
 
+/// Test 2 transfers budnled into one transaction, but with one blocklisted user.
+/// Both the transfer should fail, alice will mantain the 400 EUROe and the blocklisted user will not receive any.
+#[test]
+fn test_double_transfer_with_one_failed() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = BlocklistParams {
+        address_to_block: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect("Block contract");
+
+    // Transfer one EUROe from Alice to Bob.
+    // Transfer one EUROe from Alice to RANDOM_BLOCKLIST_ADDRESS.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    },concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(RANDOM_BLOCKLIST_ACCOUNT),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // Check that Bob has 1 `EUROE_TOKEN` and Alice has 399.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![
+        (ALICE_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 400.into())],
+            operators: Vec::new(),
+        })
+    ]);
+
+}
+
 //  Test transferring an amount that exceeds the owner's balance
 #[test]
 fn test_transfer_exceed_balance() {
