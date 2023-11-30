@@ -6,7 +6,7 @@ use concordium_smart_contract_testing::{AccountAccessStructure, AccountKeys, *};
 use concordium_std::{AccountSignatures, CredentialSignatures, HashSha2256, SignatureEd25519,
     Timestamp,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, u128::MIN};
 /// The tests accounts.
 
 const MINT_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
@@ -1536,6 +1536,48 @@ fn initialize_contract_with_alice_tokens_for_permit(
         .expect("Mint tokens");
 
     (chain, contract_address, update, keypairs)
+}
+
+// Test updating a single role.
+// The following test is also being ignored till the following PR is merged. 
+// https://github.com/membranefi/euroe-stablecoin-concordium/pull/1
+
+#[ignore]
+#[test]
+fn test_update_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Lets update the mint role to the block address role.
+    let update_role_param = UpdateRoleParams {
+        role: Roles::MintRole,
+        new_address: BLOCK_ADDRESS,
+        old_address: MINT_ADDRESS_ROLE,
+    };
+
+     chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&update_role_param).expect("Update role"),
+        })
+        .expect("Update role");
+
+    // lets see if the old mint role is removed by minting alice some tokens. 
+    let mint_params = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };  
+
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");
+
 }
 
 /// Setup chain and contract.

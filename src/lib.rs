@@ -233,6 +233,8 @@ pub enum CustomContractError {
     WrongEntryPoint,
     /// Failed signature verification: Signature is expired.
     Expired,
+    /// Wrong role for an address.
+    WrongRole,
 }
 
 pub type ContractError = Cis2Error<CustomContractError>;
@@ -1152,6 +1154,106 @@ fn contract_remove_role<S: HasStateApi>(
     state.remove_role(&params.adminrole, Roles::AdminRole);
     Ok(())
 }
+
+#[derive(Serialize, SchemaType)]
+pub struct UpdateRoleParams {
+    pub role: Roles,
+    pub new_address: Address,
+    pub old_address: Address,
+}
+// Updates a single Roles for certain addresse. 
+/// It rejects if:
+/// - It fails to parse the parameter.
+/// - Sender does not have the `AdminRole` role.
+/// - The address does not have the role.
+/// - The address is blocked.
+/// - The contract is paused.
+#[receive(
+    contract = "euroe_stablecoin",
+    name = "updateRole",
+    parameter = "UpdateRoleParams",
+    error = "ContractError",
+    enable_logger,
+    mutable
+)]
+fn contrac_updaterole<S: HasStateApi>(
+    ctx: &impl HasReceiveContext,
+    host: &mut impl HasHost<State<S>, StateApiType = S>,
+    _logger: &mut impl HasLogger,
+) -> ContractResult<()> {
+
+    // Get the sender of the transaction
+    let sender = ctx.sender();
+
+    // Check if the sender has the correct role.
+    ensure!(host.state().has_role(&sender, Roles::AdminRole),ContractError::Unauthorized);
+
+    // Parse the parameters.
+    let params: UpdateRoleParams = ctx.parameter_cursor().get()?;
+
+    // Build the response
+    let (state, builder) = host.state_and_builder();
+
+    // Check if the address is blocked.
+    ensure!(!state.is_blocked(&params.new_address),ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // Update a single role based on the parameters.
+    // First remove the old role and then add the new role.
+    if params.role == Roles::MintRole {
+        // Check if the old address is indeed a mint address 
+        ensure!(state.has_role(&params.old_address, Roles::MintRole),ContractError::Custom(CustomContractError::WrongRole));
+        // Remove the old role.
+        state.remove_role(&params.old_address, Roles::MintRole);
+
+        // Add the new role.
+        state.grant_role(&params.new_address, Roles::MintRole, builder);
+     };
+
+     if params.role == Roles::BurnRole {
+        // Check if the old address is indeed a burn address 
+        ensure!(state.has_role(&params.old_address, Roles::BurnRole),ContractError::Custom(CustomContractError::WrongRole));
+        // Remove the old role.
+        state.remove_role(&params.old_address, Roles::BurnRole);
+
+        // Add the new role.
+        state.grant_role(&params.new_address, Roles::BurnRole, builder);
+     };
+
+     if params.role == Roles::PauseUnpauseRole {
+        // Check if the old address is indeed a pause address 
+        ensure!(state.has_role(&params.old_address, Roles::PauseUnpauseRole),ContractError::Custom(CustomContractError::WrongRole));
+
+        // Remove the old role.
+        state.remove_role(&params.old_address, Roles::PauseUnpauseRole);
+
+        // Add the new role.
+        state.grant_role(&params.new_address, Roles::PauseUnpauseRole, builder);
+     };
+
+     if params.role == Roles::BlockUnblockRole {
+        // Check if the old address is indeed a block address 
+        ensure!(state.has_role(&params.old_address, Roles::BlockUnblockRole),ContractError::Custom(CustomContractError::WrongRole));
+        // Remove the old role.
+        state.remove_role(&params.old_address, Roles::BlockUnblockRole);
+
+        // Add the new role.
+        state.grant_role(&params.new_address, Roles::BlockUnblockRole, builder);
+     };
+     
+     if params.role == Roles::AdminRole {
+        // Check if the old address is indeed a admin address 
+        ensure!(state.has_role(&params.old_address, Roles::AdminRole),ContractError::Custom(CustomContractError::WrongRole));
+
+        // Remove the old role.
+        state.remove_role(&params.old_address, Roles::AdminRole);
+
+        // Add the new role.
+        state.grant_role(&params.new_address, Roles::AdminRole, builder);
+     };
+
+    Ok(())
+}
+
 
 /// Blocklist struct. 
 #[derive(Debug, Serialize, SchemaType)]
