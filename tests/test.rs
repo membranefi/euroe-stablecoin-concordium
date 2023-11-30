@@ -474,6 +474,31 @@ fn test_burn_block_sender(){
     assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
 
 }
+// Test burning with insufficient balance
+#[test]
+fn test_burn_with_zero_balance() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Burn 500 when alice only has 400
+    let burn_params: BurnParams = BurnParams {
+        burnaddress: ALICE_ADDR,
+        amount: 500.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, BURN_ACCOUNT, BURN_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.burn".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&burn_params).expect("Burn params"),
+        })
+        .expect_err("Burn tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::NoBalanceToBurn));
+}
 /// Test regular transfer where sender is the owner.
 #[test]
 fn test_account_transfer() {
@@ -1107,6 +1132,119 @@ fn test_pause_functionality() {
 
 }
 
+// Test Unpause functionality
+#[test]
+fn test_unpause() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Attempt to mint tokens.
+    let mint_params: MintParams = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect_err("Mint tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
+
+    // Unpause the contract.
+    let params = SetPausedParams {
+        paused: false,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Mint tokens for which Alice is the owner.
+    let mint_params = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };
+
+    chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");
+
+
+    // Invoke the view entrypoint and check that the tokens are owned by Alice.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![(ALICE_ADDR, ViewAddressState {
+        balances:  vec![(EUROE_TOKEN, ContractTokenAmount::from(800))],
+        operators: Vec::new(),
+    })]);
+
+}
+
+// Test unpause failed due to wrong role. 
+#[test]
+fn test_unpause_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: false,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect_err("Pause contract");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Unauthorized);
+}
 // Test to check if the pause functionality is only able to be called by the pauseunpause role
 #[test]
 fn test_pause_functionality_wrong_role() {
@@ -1358,6 +1496,126 @@ fn test_blocklist_functionality(){
         
 }
 
+// Testing that the blocklist func returns unauthorized when the user is not the blockunblock role
+#[test]
+fn test_blocklist_functionality_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = BlocklistParams {
+        address_to_block: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+   let update=  chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect_err("Block contract");
+
+    // Check that the correct error is returned.
+    let transfer_rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(transfer_rv, ContractError::Unauthorized);
+}
+
+// Test that we block a address then unblock that address and mint to it. 
+#[test]
+fn block_address_from_mint_then_unblock() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the contract.
+    let params = BlocklistParams {
+        address_to_block: BOB_ADDR,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect("Block contract");
+
+    // Attempt to mint tokens.
+    let mint_params: MintParams = MintParams {
+        owner: BOB_ADDR,
+        amount: 400.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect_err("Mint tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // now lets unblock this role and mint again. 
+    let params = UnBlocklistParams {
+        address_to_unblock: BOB_ADDR,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.unblock".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("unBlock params"),
+        })
+        .expect("unBlock contract");
+
+    chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");
+
+    // Check balances in state.
+    let balance_of_alice_and_bob = get_balances(&chain, contract_address);
+
+    assert_eq!(balance_of_alice_and_bob.0, [TokenAmountU64(400), TokenAmountU64(400)]);
+}
+
+// Unblock is unauthorised due to wrong role.
+#[test]
+fn test_unblock_fail_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = UnBlocklistParams {
+        address_to_unblock: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+   let update=  chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.unblock".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect_err("Block contract");
+
+    // Check that the correct error is returned.
+    let transfer_rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(transfer_rv, ContractError::Unauthorized);
+}
 /// Test permit update operator function. The signature is generated in the test
 /// case. ALICE adds BOB as an operator.
 #[test]
