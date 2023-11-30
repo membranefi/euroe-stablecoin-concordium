@@ -479,7 +479,7 @@ fn test_burn_block_sender(){
 fn test_account_transfer() {
     let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -535,12 +535,12 @@ fn test_account_transfer() {
     }),]);
 }
 
-/// Test 2 transfers
+/// Test 2 transfers budnled into one transaction
 #[test]
 fn test_double_transfer() {
     let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -588,12 +588,12 @@ fn test_double_transfer() {
     ]);
 }
 
-// test transfer amount that exceeds the balance
+//  Test transferring an amount that exceeds the owner's balance
 #[test]
 fn test_transfer_exceed_balance() {
     let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
 
-    // Transfer 401 token from Alice to Bob. 
+    // Transfer 401 tokens from Alice to Bob. 
     // Alice only has 400
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
@@ -638,7 +638,7 @@ fn test_transfer_pause(){
         })
         .expect("Pause contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -682,7 +682,7 @@ fn test_transfer_block_sender(){
         })
         .expect("Block contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     RANDOM_BLOCKLIST_ADDRESS,
         to:       Receiver::Account(BOB),
@@ -726,7 +726,7 @@ fn test_transfer_block_receiver(){
         })
         .expect("Block contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(RANDOM_BLOCKLIST_ACCOUNT),
@@ -1102,7 +1102,7 @@ fn test_remove_roles(){
         assert_eq!(rv, ContractError::Unauthorized);
 }
 
-// Test to remove all roles and re add them using alice as admin.
+// Test removing all roles and re-adding them using Alice as admin.
 #[test]
 fn test_remove_and_readd_roles(){
     let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
@@ -1146,7 +1146,7 @@ fn test_remove_and_readd_roles(){
 
     assert_eq!(rv, ContractError::Unauthorized);
 
-    // Lets readd the roles, only alice currently is still also the admin.
+    // Lets re-add the roles, only alice currently is still also the admin.
 
     let roles = RoleTypes {
         mintrole: MINT_ADDRESS_ROLE,
@@ -1179,7 +1179,7 @@ fn test_remove_and_readd_roles(){
             message:      OwnedParameter::from_serial(&params).expect("Pause params"),
         }).expect("Pause contract");
 
-        // Transfer one token from Alice to Bob.
+        // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -1262,7 +1262,7 @@ fn test_blocklist_functionality(){
         let burn_rv: ContractError = update_burn.parse_return_value().expect("ContractError return value");
         assert_eq!(burn_rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
 
-         // Transfer one token from Alice to Bob.
+         // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     RANDOM_BLOCKLIST_ADDRESS,
         to:       Receiver::Account(BOB),

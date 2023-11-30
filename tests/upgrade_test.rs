@@ -1,4 +1,4 @@
-//! Integration tests for the euroe_stable coin  contract.
+//! Integration tests for the euroe_stablecoin  contract.
 
 use euroe_stablecoin::*;
 use concordium_smart_contract_testing::*;
@@ -35,10 +35,10 @@ const ACC_INITIAL_BALANCE: Amount = Amount::from_ccd(10000);
 const SIGNER: Signer = Signer::with_one_key();
 
 // The below test is ignored when running `cargo test` as you would need to manually create another version of the contract.
-// Follow this instructions to run this test. 
+// Follow these instructions to run this test. 
 // Change the name of the contract in Cargo.toml and in the lib.rs file to `contract_version1`.
-// Build the code cargo concordium build --schema-embed --out dist-version2/module.wasm.v1 --schema-out dist-version2/schema.bin
-// Now you can run the test with cargo test by removing ignore.
+// Build the code `cargo concordium build --schema-embed --out dist-version2/module.wasm.v1 --schema-out dist-version2/schema.bin`
+// Now you can run the test with `cargo test` by removing ignore.
 #[ignore]
 #[test]
 fn test_upgrade_with_migration_function() {
@@ -72,7 +72,7 @@ fn test_upgrade_with_migration_function() {
 
     assert!(update.is_ok(), "Upgrade should succeed");
 
-    // lets invoke and see that the balance of Alice is still 400 euroes after the upgrade.
+    // lets invoke and see that the balance of Alice is still 400 EUROe after the upgrade.
 
     let invoke = chain
         .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
