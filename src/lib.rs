@@ -160,8 +160,6 @@ impl<S: HasStateApi> AddressState<S> {
 struct State<S> {
     /// The state of addresses.
     state: StateMap<Address, AddressState<S>, S>,
-    /// Map specifying the `AddressState` (balance and operators) for every address.
-    token:        StateMap<Address, AddressState<S>, S>,
     /// Map specifying the total supply of each token.
     token_balance: StateMap<ContractTokenId, ContractTokenAmount, S>,
     /// Map with contract addresses providing implementations of additional standards.
@@ -281,7 +279,6 @@ impl<S: HasStateApi> State<S> {
     fn empty(state_builder: &mut StateBuilder<S>, admin: Address) -> Self {
         let mut state = State {
             state: state_builder.new_map(),
-            token: state_builder.new_map(),
             token_balance: state_builder.new_map(),
             implementors: state_builder.new_map(),
             paused: false,
@@ -1525,11 +1522,10 @@ fn contract_permit<S: HasStateApi>(
     parameter = "PermitParam",
     return_value = "[u8;32]",
     crypto_primitives,
-    mutable
 )]
 fn contract_view_message_hash<S: HasStateApi>(
     ctx: &ReceiveContext,
-    _host: &mut impl HasHost<State<S>, StateApiType = S>,
+    _host: &impl HasHost<State<S>, StateApiType = S>,
     crypto_primitives: &impl HasCryptoPrimitives,
 ) -> ContractResult<[u8; 32]> {
     // Parse the parameter.
