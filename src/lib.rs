@@ -34,7 +34,7 @@ use concordium_std::{collections::BTreeMap, EntrypointName,*};
 const TOKEN_ID_EUROE: ContractTokenId = TokenIdUnit();
 
 /// The base URL for the token metadata
-const TOKEN_METADATA_BASE_URL: &str = "https://dev.euroe.com/persistent/euroe-concordium-offchain-data.json";
+const TOKEN_METADATA_BASE_URL: &str = "https://euroeccdmetadataprod.blob.core.windows.net/euroeccdmetadataprod/euroe-concordium-offchain-data.json";
 
 /// The standard identifier for CIS-3
 pub const CIS3_STANDARD_IDENTIFIER: StandardIdentifier<'static> =
