@@ -9,22 +9,22 @@ use concordium_std::{AccountSignatures, CredentialSignatures, HashSha2256, Signa
 use std::collections::BTreeMap;
 /// The tests accounts.
 
-const MINT_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const MINT_ACCOUNT: AccountAddress = AccountAddress([2; 32]);
 const MINT_ADDRESS_ROLE: Address = Address::Account(MINT_ACCOUNT);
 
-const BURN_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const BURN_ACCOUNT: AccountAddress = AccountAddress([3; 32]);
 const BURN_ADDRESS_ROLE: Address = Address::Account(BURN_ACCOUNT);
 
-const PAUSE_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const PAUSE_ACCOUNT: AccountAddress = AccountAddress([4; 32]);
 const PAUSE_ADDRESS: Address = Address::Account(PAUSE_ACCOUNT);
 
-const ADMIN_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const ADMIN_ACCOUNT: AccountAddress = AccountAddress([5; 32]);
 const ADMIN_ADDRESS: Address = Address::Account(ADMIN_ACCOUNT);
 
-const BLOCK_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const BLOCK_ACCOUNT: AccountAddress = AccountAddress([6; 32]);
 const BLOCK_ADDRESS: Address = Address::Account(BLOCK_ACCOUNT);
 
-const RANDOM_BLOCKLIST_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+const RANDOM_BLOCKLIST_ACCOUNT: AccountAddress = AccountAddress([7; 32]);
 const RANDOM_BLOCKLIST_ADDRESS: Address = Address::Account(RANDOM_BLOCKLIST_ACCOUNT);
 
 // Alice is considered the admin of the contract for the following tests.
@@ -61,7 +61,7 @@ const ACC_INITIAL_BALANCE: Amount = Amount::from_ccd(10000);
 /// A signer for all the transactions.
 const SIGNER: Signer = Signer::with_one_key();
 
-const EUROE_URL: &str = "https://euroeccdmetadataprod.blob.core.windows.net/euroeccdmetadataprod/euroe-concordium-offchain-data.json";
+const EUROE_URL: &str = "https://dev.euroe.com/persistent/euroe-concordium-offchain-data.json";
 
 // Testing that the token supply is the correct when minting tokens to an account.
 // The 400 tokens that ALICE has from the initialize_contract_with_euroe_tokens function.
@@ -336,7 +336,7 @@ fn test_burn_pause(){
 
     // The role that is allowed to call the pause function is pauseunpause role
     chain
-        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
             amount:       Amount::zero(),
             receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
             address:      contract_address,
@@ -542,7 +542,7 @@ fn test_transfer_pause(){
 
     // The role that is allowed to call the pause function is pauseunpause role
     chain
-        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
             amount:       Amount::zero(),
             receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
             address:      contract_address,
@@ -1198,6 +1198,107 @@ fn test_inside_signature_permit_update_operator() {
 
     assert_eq!(bob_is_operator_of_alice, OperatorOfQueryResponse(vec![true]));
 }
+
+// This below test will test the following actions.
+// 1. The deployer of the contract alice is the admin of the contract.
+// 2. Alice as an admin will grant roles to new addresses including another admin role. All this happens in the initialize_contract_with_euroe_tokens function.
+// 3. Now Admin wallet will send another update to remove alice (admin ) and the other roles.
+// 4. Since the admin wallet still retains the admin role position from step 2, it will be able to re add all the other roles.
+#[test]
+fn test_admin_removal(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Now lets remove alice from admin role
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ALICE_ADDR,
+    };
+
+    chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.removeRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Remove roles"),
+        })
+        .expect("Remove roles");
+
+    // Pause the contract. Lets try it using alice
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect_err("Pause contract");
+
+        let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+        assert_eq!(rv, ContractError::Unauthorized);
+
+    // The mint command should also fail since there is no mint wallet in the role anymore. 
+    let mint_params = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };
+
+    let mint_update = chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect_err("Mint tokens");
+
+    // Check that the correct error is returned.
+    let mint_rv: ContractError = mint_update.parse_return_value().expect("ContractError return value");
+    assert_eq!(mint_rv, ContractError::Unauthorized);
+
+    // // Now lets add the other roles (include the admin btw)
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ADMIN_ADDRESS,
+    };
+
+    chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.grantRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Add roles"),
+        })
+        .expect("Add roles");
+
+    //Lets mint again and this time it should success.
+
+    let mint_params = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    }; 
+
+    chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");     
+
+}
+
 
 /// Test permit update operator function. The signature is generated outside
 /// this test case (e.g. with https://cyphr.me/ed25519_tool/ed.html). ALICE adds BOB as an operator.

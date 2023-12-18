@@ -125,7 +125,7 @@ The below list provides an overview of existing test coverage and backlog items 
   - Circulating supply works correctly (randomised mints & burns)
 
 
-## Compilation and Interaction Instructions
+## Compilation and Interaction Instructions for testnet
 
 ```bash
 # Building the contract
@@ -135,7 +135,19 @@ cargo concordium build --schema-embed --out dist/module.wasm.v1 --schema-out dis
 concordium-client module deploy dist/module.wasm.v1 --sender <sender_address> --name euroe_stablecoin --energy 6000 --grpc-ip node.testnet.concordium.com --grpc-port 20000
 
 # Initializing the contract
-concordium-client contract init <contract_id> --sender <sender_address> --contract euroe_stablecoin --energy 6000 --grpc-ip node.testnet.concordium.com --grpc-port 20000
+concordium-client contract init <module_reference> --sender <sender_address> --contract euroe_stablecoin --energy 6000 --grpc-ip node.testnet.concordium.com --grpc-port 20000
+```
+
+## Compilation and Interaction Instructions for mainnet
+```bash
+# Building the contract
+cargo concordium build --schema-embed --out dist/module.wasm.v1 --schema-out dist/schema.bin
+
+# Deploying the contract
+concordium-client --secure module deploy dist/module.wasm.v1 --sender <sender_address> --name euroe_stablecoin --energy 6000 --grpc-ip grpc.mainnet.concordium.software --grpc-port 20000
+
+# Initializing the contract
+concordium-client --secure contract init <module_reference> --sender <sender_address> --contract euroe_stablecoin --energy 6000 --grpc-ip grpc.mainnet.concordium.software --grpc-port 20000
 ```
 
 ### Additional Commands
