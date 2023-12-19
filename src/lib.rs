@@ -1193,8 +1193,8 @@ fn contract_blocklist<S: HasStateApi>(
 
 ///  Unblocklist struct. 
 #[derive(Debug, Serialize, SchemaType)]
-struct UnBlocklistParams {
-    address_to_unblock: Address,
+pub struct UnBlocklistParams {
+   pub address_to_unblock: Address,
 }
 
 /// Unblocklisting function which unblocks an address.
