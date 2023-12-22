@@ -76,39 +76,39 @@ The below list provides an overview of existing test coverage and backlog items 
 - Burning
   - OK/ Burning as unauthorised
   - OK/ Burning as authorised
-  - Burning with insufficient balance
+  - OK/ Burning with insufficient balance
   - OK/ Burning from a blocklisted address
   - OK/ Calling burn froma  blocklisted address
   - OK/ Burning when contract is paused
 - Transferring 
   - OK/ Transferring as unauthorised (not token owner nor operator)
   - OK/ Transferring as authorised owner
-  - Transferring with insufficient balance
+  - OK/ Transferring with insufficient balance
   - OK/ Transferring to a blocklisted address
   - OK/ Transferring from a blocklisted address
   - OK/ Transferring when contract is paused
 - Pausing and unpausing
   - OK/ Pausing as unauthorised
   - OK/ Pausing as authorised
-  - Unpausing as unauthorised
-  - Unpausing as authorised
+  - OK/ Unpausing as unauthorised
+  - OK/ Unpausing as authorised
 - Blocklisting and unblocklisting
-  - Blocking as unauthorised
-  - Blocking as authorised
-  - Unblocking as unauthorised
-  - Unblocking as unauthorised
+  - OK/ Blocking as unauthorised
+  - OK/ Blocking as authorised
+  - OK/ Unblocking as unauthorised
+  - OK/ Unblocking as unauthorised
 - Operators
   - OK/ Assigning an operator
-  - Unassigning an operator
+  - OK/ Unassigning an operator
   - OK/ Blocklisted address authorising an operator
-  - Blocklisted address assigned as an operator
+  - OK/ Blocklisted address assigned as an operator
   - OK/ Operator transfer works
-  - Operator transfers to a blocklisted address
-  - Operator transfers from a blocklisted address
-  - Operator transfers when operator is blocklisted
-  - Operator transfers during contract pause
-  - Operator assigned during contract pause
-  - Operator un-assigned during contract pause
+  - OK/ Operator transfers to a blocklisted address
+  - OK/ Operator transfers from a blocklisted address
+  - OK/ Operator transfers when operator is blocklisted
+  - OK/ Operator transfers during contract pause
+  - OK/ Operator assigned during contract pause
+  - OK/ Operator un-assigned during contract pause
 - CIS2
   - Contract supports CIS2
   - OK/ Metadata URL is correct

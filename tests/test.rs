@@ -9,6 +9,18 @@ use concordium_std::{AccountSignatures, CredentialSignatures, HashSha2256, Signa
 use std::collections::BTreeMap;
 /// The tests accounts.
 
+
+// Alice is considered the admin of the contract for the following tests.
+// Alice assigns the role as she gets the admin role in the initialize function.
+const ALICE: AccountAddress = AccountAddress([0; 32]);
+const ALICE_ADDR: Address = Address::Account(ALICE);
+
+const BOB: AccountAddress = AccountAddress([1; 32]);
+const BOB_ADDR: Address = Address::Account(BOB);
+
+const CHARLIE: AccountAddress = AccountAddress([2u8; 32]);
+
+
 const MINT_ACCOUNT: AccountAddress = AccountAddress([2; 32]);
 const MINT_ADDRESS_ROLE: Address = Address::Account(MINT_ACCOUNT);
 
@@ -27,13 +39,8 @@ const BLOCK_ADDRESS: Address = Address::Account(BLOCK_ACCOUNT);
 const RANDOM_BLOCKLIST_ACCOUNT: AccountAddress = AccountAddress([7; 32]);
 const RANDOM_BLOCKLIST_ADDRESS: Address = Address::Account(RANDOM_BLOCKLIST_ACCOUNT);
 
-// Alice is considered the admin of the contract for the following tests.
-// Alice assigns the role as she gets the admin role in the initialize function.
-const ALICE: AccountAddress = AccountAddress([0; 32]);
-const ALICE_ADDR: Address = Address::Account(ALICE);
-const BOB: AccountAddress = AccountAddress([1; 32]);
-const BOB_ADDR: Address = Address::Account(BOB);
-const CHARLIE: AccountAddress = AccountAddress([2u8; 32]);
+const RANDOM_MINT_ACCOUNT: AccountAddress = AccountAddress([8; 32]);
+const _RANDOM_MINT_ADDRESS: Address = Address::Account(RANDOM_MINT_ACCOUNT);
 
 const PUBLIC_KEY: [u8; 32] = [
     120, 154, 141, 6, 248, 239, 77, 224, 80, 62, 139, 136, 211, 204, 105, 208, 26, 11, 2, 208, 195,
@@ -469,12 +476,37 @@ fn test_burn_block_sender(){
     assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
 
 }
+// Test burning with insufficient balance
+#[test]
+fn test_burn_with_zero_balance() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Burn 500 when alice only has 400
+    let burn_params: BurnParams = BurnParams {
+        burnaddress: ALICE_ADDR,
+        amount: 500.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, BURN_ACCOUNT, BURN_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.burn".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&burn_params).expect("Burn params"),
+        })
+        .expect_err("Burn tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::NoBalanceToBurn));
+}
 /// Test regular transfer where sender is the owner.
 #[test]
 fn test_account_transfer() {
     let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -530,6 +562,160 @@ fn test_account_transfer() {
     }),]);
 }
 
+/// Test 2 transfers budnled into one transaction
+#[test]
+fn test_double_transfer() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Transfer one EUROe from Alice to Bob.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    },concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect("Transfer tokens");
+
+    // Check that Bob has 1 `EUROE_TOKEN` and Alice has 399.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![
+        (ALICE_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 398.into())],
+            operators: Vec::new(),
+        }),
+        (BOB_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 2.into())],
+            operators: Vec::new(),
+        }),
+    ]);
+}
+
+/// Test 2 transfers budnled into one transaction, but with one blocklisted user.
+/// Both the transfer should fail, alice will mantain the 400 EUROe and the blocklisted user will not receive any.
+#[test]
+fn test_double_transfer_with_one_failed() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = BlocklistParams {
+        address_to_block: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect("Block contract");
+
+    // Transfer one EUROe from Alice to Bob.
+    // Transfer one EUROe from Alice to RANDOM_BLOCKLIST_ADDRESS.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    },concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(RANDOM_BLOCKLIST_ACCOUNT),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // Check that Bob has 1 `EUROE_TOKEN` and Alice has 399.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![
+        (ALICE_ADDR, ViewAddressState {
+            balances:  vec![(EUROE_TOKEN, 400.into())],
+            operators: Vec::new(),
+        })
+    ]);
+
+}
+
+//  Test transferring an amount that exceeds the owner's balance
+#[test]
+fn test_transfer_exceed_balance() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Transfer 401 tokens from Alice to Bob. 
+    // Alice only has 400
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(401),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::InsufficientFunds);
+}
+
 // Test transfer fails if contract is paused
 #[test]
 fn test_transfer_pause(){
@@ -550,7 +736,7 @@ fn test_transfer_pause(){
         })
         .expect("Pause contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(BOB),
@@ -594,7 +780,7 @@ fn test_transfer_block_sender(){
         })
         .expect("Block contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     RANDOM_BLOCKLIST_ADDRESS,
         to:       Receiver::Account(BOB),
@@ -638,7 +824,7 @@ fn test_transfer_block_receiver(){
         })
         .expect("Block contract");
 
-    // Transfer one token from Alice to Bob.
+    // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     ALICE_ADDR,
         to:       Receiver::Account(RANDOM_BLOCKLIST_ACCOUNT),
@@ -717,6 +903,302 @@ fn test_add_operator() {
 
     let rv: OperatorOfQueryResponse = invoke.parse_return_value().expect("OperatorOf return value");
     assert_eq!(rv, OperatorOfQueryResponse(vec![true]));
+}
+
+// Test adding operator fails if the sender and the operator are blocklisted
+#[test]
+fn test_add_operator_fail(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = BlocklistParams {
+        address_to_block: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect("Block contract");
+
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Add,
+        operator: RANDOM_BLOCKLIST_ADDRESS,
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, RANDOM_BLOCKLIST_ACCOUNT, RANDOM_BLOCKLIST_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect_err("Update operator");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // now lets resend another transaction but this time to check if the operator address is blocklisted
+
+    let update_op = chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect_err("Update operator");
+
+    // Check that the correct error is returned.
+    let rv_op: ContractError = update_op.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv_op, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+}
+
+/// Test that you can add an operator.
+/// Initialize the contract with tokenss owned by Alice.
+/// Then add Bob as an operator for Alice.
+/// Then remove Bob as an opeartor of Alice.
+#[test]
+fn test_remove_operator() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Add,
+        operator: BOB_ADDR,
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect("Update operator");
+
+    // Check that an operator event occurred.
+    let events = update
+        .events()
+        .flat_map(|(_addr, events)| events.iter().map(|e| e.parse().expect("Deserialize event")))
+        .collect::<Vec<Cis2Event<ContractTokenId, ContractTokenAmount>>>();
+    assert_eq!(events, [Cis2Event::UpdateOperator(UpdateOperatorEvent {
+        operator: BOB_ADDR,
+        owner:    ALICE_ADDR,
+        update:   OperatorUpdate::Add,
+    }),]);
+
+    // Construct a query parameter to check whether Bob is an operator for Alice.
+    let query_params = OperatorOfQueryParams {
+        queries: vec![OperatorOfQuery {
+            owner:   ALICE_ADDR,
+            address: BOB_ADDR,
+        }],
+    };
+
+    // Invoke the operatorOf view entrypoint and check that Bob is an operator for
+    // Alice.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.operatorOf".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&query_params).expect("OperatorOf params"),
+        })
+        .expect("Invoke view");
+
+    let rv: OperatorOfQueryResponse = invoke.parse_return_value().expect("OperatorOf return value");
+    assert_eq!(rv, OperatorOfQueryResponse(vec![true]));
+
+    // Lets remove Bob as an operator for Alice.
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Remove,
+        operator: BOB_ADDR,
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect("Update operator");
+
+    // Check that an operator event occurred.
+    let events = update
+        .events()
+        .flat_map(|(_addr, events)| events.iter().map(|e| e.parse().expect("Deserialize event")))
+        .collect::<Vec<Cis2Event<ContractTokenId, ContractTokenAmount>>>();
+    assert_eq!(events, [Cis2Event::UpdateOperator(UpdateOperatorEvent {
+        operator: BOB_ADDR,
+        owner:    ALICE_ADDR,
+        update:   OperatorUpdate::Remove,
+    }),]);
+
+    // Invoke the operatorOf view entrypoint and check that Bob is an operator for
+    // Alice.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.operatorOf".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&query_params).expect("OperatorOf params"),
+        })
+        .expect("Invoke view");
+
+    let rv: OperatorOfQueryResponse = invoke.parse_return_value().expect("OperatorOf return value");
+    assert_eq!(rv, OperatorOfQueryResponse(vec![false]));
+}
+
+// Test operator add fail when contract is paused. 
+#[test]
+fn test_add_operator_pause(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Add,
+        operator: BOB_ADDR,
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect_err("Update operator");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
+}
+
+// Test operator remove fail when contract is paused. 
+#[test]
+fn test_remove_operator_pause(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Remove,
+        operator: BOB_ADDR,
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect_err("Update operator");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
+}
+
+// Test operator can transfer fail if the contract is paused. 
+#[test]
+fn test_operator_can_transfer_pause(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Add Bob as an operator for Alice.
+    let params = UpdateOperatorParams(vec![UpdateOperator {
+        update:   OperatorUpdate::Add,
+        operator: BOB_ADDR,
+    }]);
+
+    chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.updateOperator".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("UpdateOperator params"),
+        })
+        .expect("Update operator");
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Let Bob make a transfer to himself on behalf of Alice.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, BOB, BOB_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
 }
 
 /// Test that a transfer fails when the sender is neither an operator or the
@@ -948,6 +1430,119 @@ fn test_pause_functionality() {
 
 }
 
+// Test Unpause functionality
+#[test]
+fn test_unpause() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Attempt to mint tokens.
+    let mint_params: MintParams = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect_err("Mint tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
+
+    // Unpause the contract.
+    let params = SetPausedParams {
+        paused: false,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect("Pause contract");
+
+    // Mint tokens for which Alice is the owner.
+    let mint_params = MintParams {
+        owner: ALICE_ADDR,
+        amount: 400.into(),
+    };
+
+    chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");
+
+
+    // Invoke the view entrypoint and check that the tokens are owned by Alice.
+    let invoke = chain
+        .contract_invoke(ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.view".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::empty(),
+        })
+        .expect("Invoke view");
+
+    let rv: ViewState = invoke.parse_return_value().expect("ViewState return value");
+
+    assert_eq!(rv.state, vec![(ALICE_ADDR, ViewAddressState {
+        balances:  vec![(EUROE_TOKEN, ContractTokenAmount::from(800))],
+        operators: Vec::new(),
+    })]);
+
+}
+
+// Test unpause failed due to wrong role. 
+#[test]
+fn test_unpause_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Pause the contract.
+    let params = SetPausedParams {
+        paused: false,
+    };
+
+    // The role that is allowed to call the pause function is pauseunpause role
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect_err("Pause contract");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Unauthorized);
+}
 // Test to check if the pause functionality is only able to be called by the pauseunpause role
 #[test]
 fn test_pause_functionality_wrong_role() {
@@ -1014,6 +1609,107 @@ fn test_remove_roles(){
         assert_eq!(rv, ContractError::Unauthorized);
 }
 
+// Test removing all roles and re-adding them using Alice as admin.
+#[test]
+fn test_remove_and_readd_roles(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Initialize already grants roles, now we will remove them.
+
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ADMIN_ADDRESS,
+    };
+
+    chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.removeRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Remove roles"),
+        })
+        .expect("Remove roles");
+
+    // Pause contract params.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // . Lets check if we can pause a contract that has had the pause role removed.
+    let update = chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        })
+        .expect_err("Pause contract");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Unauthorized);
+
+    // Lets re-add the roles, only alice currently is still also the admin.
+
+    let roles = RoleTypes {
+        mintrole: MINT_ADDRESS_ROLE,
+        pauserole: PAUSE_ADDRESS,  
+        burnrole: BURN_ADDRESS_ROLE,
+        blockrole: BLOCK_ADDRESS,
+        adminrole: ADMIN_ADDRESS,
+    };
+
+    chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.grantRole".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&roles).expect("Grant roles"),
+        })
+        .expect("Grant roles");
+
+    // Pause contract params.
+    let params = SetPausedParams {
+        paused: true,
+    };
+
+    // . Lets check if we can pause a contract that has had the pause role removed.
+    chain
+        .contract_update(SIGNER, PAUSE_ACCOUNT, PAUSE_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.setPaused".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Pause params"),
+        }).expect("Pause contract");
+
+        // Transfer one EUROe from Alice to Bob.
+    let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
+        from:     ALICE_ADDR,
+        to:       Receiver::Account(BOB),
+        token_id: EUROE_TOKEN,
+        amount:   TokenAmountU64(1),
+        data:     AdditionalData::empty(),
+    }]);
+
+    let update = chain
+        .contract_update(SIGNER, ALICE, ALICE_ADDR, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.transfer".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&transfer_params).expect("Transfer params"),
+        })
+        .expect_err("Transfer tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(rv, ContractError::Custom(CustomContractError::ContractPaused));
+}
+
 // This test is to check when a user is blocked, the user is not able to call any of the  functionality which has
 // blocklist as a requirement.
 // They are contract_mint, contract_burn, contract_transfer, contract_updateOperator
@@ -1073,7 +1769,7 @@ fn test_blocklist_functionality(){
         let burn_rv: ContractError = update_burn.parse_return_value().expect("ContractError return value");
         assert_eq!(burn_rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
 
-         // Transfer one token from Alice to Bob.
+         // Transfer one EUROe from Alice to Bob.
     let transfer_params = TransferParams::from(vec![concordium_cis2::Transfer {
         from:     RANDOM_BLOCKLIST_ADDRESS,
         to:       Receiver::Account(BOB),
@@ -1098,6 +1794,126 @@ fn test_blocklist_functionality(){
         
 }
 
+// Testing that the blocklist func returns unauthorized when the user is not the blockunblock role
+#[test]
+fn test_blocklist_functionality_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = BlocklistParams {
+        address_to_block: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+   let update=  chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect_err("Block contract");
+
+    // Check that the correct error is returned.
+    let transfer_rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(transfer_rv, ContractError::Unauthorized);
+}
+
+// Test that we block a address then unblock that address and mint to it. 
+#[test]
+fn block_address_from_mint_then_unblock() {
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the contract.
+    let params = BlocklistParams {
+        address_to_block: BOB_ADDR,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.block".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect("Block contract");
+
+    // Attempt to mint tokens.
+    let mint_params: MintParams = MintParams {
+        owner: BOB_ADDR,
+        amount: 400.into(),
+    };
+
+    let update = chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect_err("Mint tokens");
+
+    // Check that the correct error is returned.
+    let rv: ContractError = update.parse_return_value().expect("ContractError return value");
+    assert_eq!(rv, ContractError::Custom(CustomContractError::AddressBlocklisted));
+
+    // now lets unblock this role and mint again. 
+    let params = UnBlocklistParams {
+        address_to_unblock: BOB_ADDR,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+    chain
+        .contract_update(SIGNER, BLOCK_ACCOUNT, BLOCK_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.unblock".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("unBlock params"),
+        })
+        .expect("unBlock contract");
+
+    chain
+        .contract_update(SIGNER, MINT_ACCOUNT, MINT_ADDRESS_ROLE, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.mint".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&mint_params).expect("Mint params"),
+        })
+        .expect("Mint tokens");
+
+    // Check balances in state.
+    let balance_of_alice_and_bob = get_balances(&chain, contract_address);
+
+    assert_eq!(balance_of_alice_and_bob.0, [TokenAmountU64(400), TokenAmountU64(400)]);
+}
+
+// Unblock is unauthorised due to wrong role.
+#[test]
+fn test_unblock_fail_with_wrong_role(){
+    let (mut chain, contract_address, _update) = initialize_contract_with_euroe_tokens();
+
+    // Block the address.
+    let params = UnBlocklistParams {
+        address_to_unblock: RANDOM_BLOCKLIST_ADDRESS,
+    };
+
+    // The role that is allowed to call the block function is blockunblock role
+   let update=  chain
+        .contract_update(SIGNER, ADMIN_ACCOUNT, ADMIN_ADDRESS, Energy::from(10000), UpdateContractPayload {
+            amount:       Amount::zero(),
+            receive_name: OwnedReceiveName::new_unchecked("euroe_stablecoin.unblock".to_string()),
+            address:      contract_address,
+            message:      OwnedParameter::from_serial(&params).expect("Block params"),
+        })
+        .expect_err("Block contract");
+
+    // Check that the correct error is returned.
+    let transfer_rv: ContractError = update.parse_return_value().expect("ContractError return value");
+
+    assert_eq!(transfer_rv, ContractError::Unauthorized);
+}
 /// Test permit update operator function. The signature is generated in the test
 /// case. ALICE adds BOB as an operator.
 #[test]
@@ -1523,8 +2339,9 @@ fn initialize_chain_and_contract() -> (Chain, ContractAddress) {
     chain.create_account(Account::new(ADMIN_ACCOUNT, ACC_INITIAL_BALANCE));
     chain.create_account(Account::new(BLOCK_ACCOUNT, ACC_INITIAL_BALANCE));
     chain.create_account(Account::new(RANDOM_BLOCKLIST_ACCOUNT, ACC_INITIAL_BALANCE));
+    chain.create_account(Account::new(CHARLIE, ACC_INITIAL_BALANCE));
+    chain.create_account(Account::new(RANDOM_MINT_ACCOUNT, ACC_INITIAL_BALANCE));
     
-
     // Load and deploy the module.
     let module = module_load_v1("dist/module.wasm.v1").expect("Module exists");
     let deployment = chain.module_deploy_v1(SIGNER, ALICE, module).expect("Deploy valid module");
