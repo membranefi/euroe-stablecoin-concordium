@@ -68,7 +68,7 @@ const ACC_INITIAL_BALANCE: Amount = Amount::from_ccd(10000);
 /// A signer for all the transactions.
 const SIGNER: Signer = Signer::with_one_key();
 
-const EUROE_URL: &str = "https://dev.euroe.com/persistent/euroe-concordium-offchain-data.json";
+const EUROE_URL: &str = "https://euroeccdmetadataprod.blob.core.windows.net/euroeccdmetadataprod/euroe-concordium-offchain-data.json";
 
 // Testing that the token supply is the correct when minting tokens to an account.
 // The 400 tokens that ALICE has from the initialize_contract_with_euroe_tokens function.
